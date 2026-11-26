@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Balap Sepeda: Sirkuit Juara</title>
+<style>
+  * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+  body {
+    margin: 0; padding: 0; background-color: #12161f; color: #ffffff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; user-select: none; overflow: hidden;
+  }
+  h1 { margin: 8px 0 4px; font-size: 24px; color: #00e5ff; letter-spacing: 1px; text-align: center; }
+  p.subtitle { margin: 0 0 12px; font-size: 13px; color: #a0aab8; text-align: center; }
+  #game-wrapper {
+    position: relative; width: 420px; max-width: 95vw; height: 560px; max-height: 74vh;
+    border: 4px solid #2b3547; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.7); background: #2c313a;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hud {
+    position: absolute; top: 12px; left: 12px; right: 12px;
+    display: flex; justify-content: space-between; font-weight: bold;
+    font-size: 14px; background: rgba(18, 22, 31, 0.85);
+    padding: 8px 14px; border-radius: 8px; border: 1px solid #3c485e;
+  }
+  .overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(14, 18, 26, 0.92); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 24px; text-align: center;
+  }
+  .hidden { display: none !important; }
+  button {
+    background: linear-gradient(135deg, #00c6ff, #0072ff);
+    color: white; border: none; padding: 12px 28px;
+    font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer;
+    margin-top: 18px; box-shadow: 0 4px 15px rgba(0, 114, 255, 0.4);
+    transition: transform 0.15s;
+  }
+  button:hover { transform: scale(1.05); }
+  .mobile-controls {
+    display: flex; gap: 20px; margin-top: 12px; width: 420px; max-width: 95vw;
+  }
+  .ctrl-btn {
+    flex: 1; background: #232a38; border: 2px solid #3c485e; color: white;
+    padding: 14px; font-size: 18px; border-radius: 8px; margin-top: 0;
+    box-shadow: none;
+  }
+  .ctrl-btn:active { background: #0072ff; }
+</style>
+</head>
+<body>
+
+  <h1>🚴 Balap Sepeda: Sirkuit Juara</h1>
+  <p class="subtitle">Salip pembalap lain, hindari kerucut jalan, dan ambil botol energi!</p>
+
+  <div id="game-wrapper">
+    <canvas id="raceCanvas" width="420" height="560"></canvas>
+
+    <div id="hud">
+      <span id="score-display">Skor: 0</span>
+      <span id="speed-display" style="color:#00e5ff;">Kecepatan: 35 km/j</span>
+    </div>
+
+    <div id="start-screen" class="overlay">
+      <h2 style="color:#00e5ff; margin-bottom:10px;">Siap di Garis Start?</h2>
+      <p style="font-size:14px; line-height:1.6; color:#cfd8e3;">
+        Gunakan tombol <b>Panah Kiri / Kanan</b> (atau <b>A / D</b>) untuk berpindah jalur.<br><br>
+        ⚡ Ambil <b>Botol Energi (Kuning)</b> untuk menyalakan mode <i>Sprint</i> dan menambah poin bonus!
+      </p>
+      <button onclick="startGame()">Mulai Balapan!</button>
+    </div>
+
+    <div id="gameover-screen" class="overlay hidden">
+      <h2 style="color:#ff5252; margin-bottom:8px;">💥 Tabrakan Terjadi!</h2>
+      <p id="final-score" style="font-size:18px; font-weight:bold; margin:8px 0;"></p>
+      <p id="high-score" style="font-size:14px; color:#a0aab8; margin:0;"></p>
+      <button onclick="startGame()">Balapan Lagi</button>
+    </div>
+  </div>
+
+  <div class="mobile-controls">
+    <button class="ctrl-btn" onmousedown="moveLeft()" ontouchstart="event.preventDefault(); moveLeft()">⬅️ Kiri</button>
+    <button class="ctrl-btn" onmousedown="moveRight()" ontouchstart="event.preventDefault(); moveRight()">Kanan ➡️</button>
+  </div>
+
+<script>
+  const canvas = document.getElementById('raceCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const lanes = [100, 210, 320];
+  let currentLane = 1;
+  let playerX = lanes[currentLane];
+  const playerY = 450;
+
+  let gameState = 'START';
+  let score = 0;
+  let highScore = 0;
+  let baseSpeed = 5;
+  let boostTimer = 0;
+  let roadOffset = 0;
+  let frame = 0;
+
+  let entities = [];
+
+  function moveLeft() {
+    if (gameState === 'PLAYING' && currentLane > 0) currentLane--;
+  }
+
+  function moveRight() {
+    if (gameState === 'PLAYING' && currentLane < 2) currentLane++;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moveLeft();
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveRight();
+  });
+
+  function startGame() {
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('gameover-screen').classList.add('hidden');
+    currentLane = 1;
+    playerX = lanes[currentLane];
+    score = 0;
+    baseSpeed = 5;
+    boostTimer = 0;
+    entities = [];
+    frame = 0;
+    gameState = 'PLAYING';
+    loop();
+  }
+
+  function spawnEntity() {
+    const laneIdx = Math.floor(Math.random() * 3);
+    const rand = Math.random();
+    let type = 'RIVAL';
+    if (rand > 0.85) type = 'BOOST';
+    else if (rand > 0.60) type = 'CONE';
+
+    const tooClose = entities.some(ent => ent.lane === laneIdx && ent.y < 140);
+    if (!tooClose) {
+      entities.push({
+        type: type,
+        lane: laneIdx,
+        x: lanes[laneIdx],
+        y: -60,
+        speedOffset: type === 'RIVAL' ? 2.2 : 0
+      });
+    }
+  }
+
+  function drawCyclist(x, y, jerseyColor, isPlayer) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    if (isPlayer && boostTimer > 0) {
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-18, -20); ctx.lineTo(-18, 45);
+      ctx.moveTo(18, -20); ctx.lineTo(18, 45);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(-3, -34, 6, 22);
+    ctx.fillRect(-3, 12, 6, 22);
+
+    ctx.strokeStyle = '#cfd8e3';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-14, -16);
+    ctx.lineTo(14, -16);
+    ctx.stroke();
+
+    ctx.fillStyle = jerseyColor;
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 12, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = isPlayer ? '#ffffff' : '#222222';
+    ctx.beginPath();
+    ctx.ellipse(0, -10, 7, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawCone(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = '#ff6d00';
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ff6d00';
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBoost(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = '#ffd600';
+    ctx.shadowColor = '#ffd600';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.roundRect(-9, -14, 18, 28, 5);
+    ctx.fill();
+    ctx.fillStyle = '#12161f';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚡', 0, 5);
+    ctx.restore();
+  }
+
+  function update() {
+    frame++;
+    const currentSpeed = boostTimer > 0 ? baseSpeed * 1.6 : baseSpeed;
+    if (boostTimer > 0) boostTimer--;
+
+    score += boostTimer > 0 ? 0.35 : 0.15;
+    baseSpeed = 5 + Math.min(7, score / 250);
+
+    roadOffset = (roadOffset + currentSpeed) % 60;
+
+    const targetX = lanes[currentLane];
+    playerX += (targetX - playerX) * 0.25;
+
+    const spawnRate = Math.max(28, Math.floor(65 - baseSpeed * 3));
+    if (frame % spawnRate === 0) spawnEntity();
+
+    for (let i = entities.length - 1; i >= 0; i--) {
+      let ent = entities[i];
+      ent.y += (currentSpeed - ent.speedOffset);
+
+      const dx = Math.abs(playerX - ent.x);
+      const dy = Math.abs(playerY - ent.y);
+
+      if (dx < 22 && dy < 44) {
+        if (ent.type === 'BOOST') {
+          boostTimer = 150;
+          score += 50;
+          entities.splice(i, 1);
+          continue;
+        } else {
+          gameOver();
+          return;
+        }
+      }
+
+      if (ent.y > canvas.height + 60) {
+        entities.splice(i, 1);
+      }
+    }
+
+    document.getElementById('score-display').innerText = `Skor: ${Math.floor(score)}`;
+    const kmh = Math.floor(currentSpeed * 7);
+    const speedEl = document.getElementById('speed-display');
+    speedEl.innerText = boostTimer > 0 ? `⚡ SPRINT: ${kmh} km/j` : `Kecepatan: ${kmh} km/j`;
+    speedEl.style.color = boostTimer > 0 ? '#ffd600' : '#00e5ff';
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#1e4620';
+    ctx.fillRect(0, 0, 35, canvas.height);
+    ctx.fillRect(canvas.width - 35, 0, 35, canvas.height);
+
+    for (let y = -60 + roadOffset; y < canvas.height; y += 60) {
+      ctx.fillStyle = '#d32f2f';
+      ctx.fillRect(30, y, 8, 30);
+      ctx.fillRect(canvas.width - 38, y, 8, 30);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(30, y + 30, 8, 30);
+      ctx.fillRect(canvas.width - 38, y + 30, 8, 30);
+    }
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([25, 35]);
+    ctx.lineDashOffset = -roadOffset;
+    [155, 265].forEach(lineX => {
+      ctx.beginPath();
+      ctx.moveTo(lineX, 0);
+      ctx.lineTo(lineX, canvas.height);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    entities.forEach(ent => {
+      if (ent.type === 'RIVAL') drawCyclist(ent.x, ent.y, '#ff3d00', false);
+      else if (ent.type === 'CONE') drawCone(ent.x, ent.y);
+      else if (ent.type === 'BOOST') drawBoost(ent.x, ent.y);
+    });
+
+    drawCyclist(playerX, playerY, '#00e5ff', true);
+  }
+
+  function gameOver() {
+    gameState = 'GAMEOVER';
+    const finalInt = Math.floor(score);
+    if (finalInt > highScore) highScore = finalInt;
+    document.getElementById('final-score').innerText = `Skor Akhir: ${finalInt}`;
+    document.getElementById('high-score').innerText = `Rekor Tertinggi: ${highScore}`;
+    document.getElementById('gameover-screen').classList.remove('hidden');
+  }
+
+  function loop() {
+    if (gameState !== 'PLAYING') return;
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  draw();
+</script>
+</body>
+</html>
